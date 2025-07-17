@@ -1,0 +1,75 @@
+### View the namespaces
+
+GET http://localhost:8181/v1/namespaces
+
+### Create a namespace
+
+POST http://localhost:8181/v1/namespaces
+Content-Type: application/json
+
+{
+    "namespace": [
+        "example_namespace"
+    ]
+}
+
+### Create the table called my_table
+
+POST http://localhost:8181/v1/namespaces/example_namespace/tables
+Content-Type: application/json
+
+{
+    "name": "my_table",
+    "schema": {
+        "id": 1,
+        "type": "struct",
+        "fields": [
+            {
+                "name": "id",
+                "type": "int",
+                "required": true
+            },
+            {
+                "name": "name",
+                "type": "string",
+                "required": false
+            },
+            {
+                "name": "transaction_date",
+                "type": "date",
+                "required": true
+            }
+        ]
+    },
+    "partition-spec": [
+        {
+            "source-id": 3,
+            "field-id": 1000,
+            "name": "transaction_date",
+            "transform": "identity"
+        }
+    ]
+}
+
+
+
+### Add file to Iceberg Table
+POST http://localhost:8181/v1/namespaces/example_namespace/tables/my_table/commit
+Content-Type: application/json
+
+{
+    "changes": [
+        {
+            "type": "add",
+            "path": "s3://mybucket/example_namespace/sample_data.parquet",
+            "format": "PARQUET",
+            "partition": {
+                "transaction_date": "2025-07-01"
+            },
+            "size": 1250,
+            "record_count": 100
+        }
+    ]
+}
+
+

@@ -1,0 +1,111 @@
+services:
+    minio:
+        image: minio/minio:latest
+        container_name: minio
+        ports:
+            - "9000:9000"
+            - "9001:9001"
+        environment:
+            MINIO_ROOT_USER: minioadmin
+            MINIO_ROOT_PASSWORD: minioadmin
+            MINIO_REGION: us-east-1
+        command: server /data --console-address ":9001"
+        volumes:
+            - minio-data:/data
+
+    init-bucket:
+        image: minio/mc:latest
+        container_name: init-bucket
+        depends_on:
+            - minio
+        entrypoint: >
+            /bin/sh -c "
+              sleep 5 &&
+              mc alias set local http://minio:9000 minioadmin minioadmin &&
+              mc mb -p local/warehouse || true &&
+              mc policy set public local/warehouse &&
+              echo '✅ MinIO bucket \"warehouse\" is ready.'
+            "
+
+    rest-catalog:
+        image: tabulario/iceberg-rest:1.6.0
+        container_name: iceberg-rest
+        environment:
+            - CATALOG_WAREHOUSE=s3a://warehouse/
+#            - CATALOG_CATALOG__IMPL=org.apache.iceberg.rest.RESTCatalog
+            - CATALOG_IO__IMPL=org.apache.iceberg.aws.s3.S3FileIO
+            - CATALOG_S3_ENDPOINT=http://minio:9000
+            - AWS_ACCESS_KEY_ID=minioadmin
+            - AWS_SECRET_ACCESS_KEY=minioadmin
+            - AWS_REGION=us-east-1
+            - CATALOG_S3_PATH__STYLE__ACCESS=true
+        ports:
+            - "8181:8181"
+        depends_on:
+            - init-bucket
+
+    flink-jobmanager:
+        image: dhinojosa/flink-hadoop-minio:1.0
+        container_name: flink-jobmanager
+        ports:
+            - "8081:8081"
+        environment:
+            - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
+            - HADOOP_CONF_DIR=/opt/flink/conf
+            - AWS_REGION=us-east-1
+            - AWS_ACCESS_KEY_ID=minioadmin
+            - AWS_SECRET_ACCESS_KEY=minioadmin
+            - CATALOG_S3_PATH__STYLE__ACCESS=true
+        env_file:
+            - flink.env
+        command: jobmanager
+        depends_on:
+            - rest-catalog
+
+    flink-taskmanager:
+        image: dhinojosa/flink-hadoop-minio:1.0
+        container_name: flink-taskmanager
+        environment:
+            - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
+            - TASK_MANAGER_NUMBER_OF_TASK_SLOTS=4
+            - HADOOP_CONF_DIR=/opt/flink/conf
+            - AWS_REGION=us-east-1
+            - AWS_ACCESS_KEY_ID=minioadmin
+            - AWS_SECRET_ACCESS_KEY=minioadmin
+            - CATALOG_S3_PATH__STYLE__ACCESS=true
+        env_file:
+            - flink.env
+        command: taskmanager
+        depends_on:
+            - flink-jobmanager
+
+
+
+    broker:
+        image: confluentinc/cp-kafka:7.6.1
+        hostname: broker
+        container_name: broker
+        ports:
+            - "9092:9092"
+            - "9101:9101"
+        environment:
+            KAFKA_NODE_ID: 1
+            KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+            KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092'
+            KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+            KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+            KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+            KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+            KAFKA_JMX_PORT: 9101
+            KAFKA_JMX_HOSTNAME: localhost
+            KAFKA_PROCESS_ROLES: 'broker,controller'
+            KAFKA_CONTROLLER_QUORUM_VOTERS: '1@broker:29093'
+            KAFKA_LISTENERS: 'PLAINTEXT://broker:29092,CONTROLLER://broker:29093,PLAINTEXT_HOST://0.0.0.0:9092'
+            KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+            KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+            KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
+            CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+
+volumes:
+    minio-data:
+    kafka-data:
