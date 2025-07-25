@@ -11,7 +11,7 @@ INSERT INTO vroom.customers VALUES
                           (2, 'Bob Johnson', 'bob@example.com'),
                           (3, 'Carol Adams', 'carol@example.com');
 
-SELECT * FROM vroom.customers$snapshots;
+SELECT * FROM vroom.customers.snapshots;
 
 INSERT INTO customers VALUES
                           (4, 'Diana Brooks', 'diana.brooks@example.com'),
@@ -20,25 +20,12 @@ INSERT INTO customers VALUES
                           (7, 'Raymond Singh', 'ray.singh@example.com'),
                           (8, 'John Taylor', 'john.taylor@example.com');
 
-SELECT *,
-       UNIX_TIMESTAMP(CAST(committed_at AS STRING)) * 1000 AS committed_unix_ms
-FROM vroom.customers$snapshots;
+ALTER TABLE vroom.customers ADD COLUMN region STRING;
 
-SELECT * FROM customers /*+ OPTIONS ('as-of-timestamp' = '1752189366000') */;
+SELECT * FROM vroom.customers;
 
-SELECT * FROM customers /*+ OPTIONS ('snapshot-id' = '857744417093019701') */;
 
-DROP TABLE customers;
-
-CREATE TABLE customers (
-                           id BIGINT,
-                           name STRING,
-                           email STRING,
-                           region STRING
-)
-    PARTITIONED BY (bucket(region, 10));
-
-INSERT INTO customers VALUES
+INSERT INTO vroom.customers VALUES
                           (1, 'Alice Smith', 'alice.smith@example.com', 'us-east'),
                           (2, 'Bob Johnson', 'bob.johnson@example.com', 'us-west'),
                           (3, 'Carla Ruiz', 'carla.ruiz@example.com', 'europe-west'),
@@ -79,3 +66,10 @@ INSERT INTO customers VALUES
                           (38, 'Mariana López', 'mariana.lopez@example.com', 'south-america-east'),
                           (39, 'Nguyen Van Anh', 'nguyen.anh@example.com', 'asia-southeast'),
                           (40, 'Oksana Shevchenko', 'oksana.shevchenko@example.com', 'europe-east');
+
+
+SELECT * FROM vroom.customers;
+
+SELECT * FROM vroom.customers.snapshots;
+
+SELECT * FROM vroom.customers VERSION AS OF 3438170967593712451;
