@@ -39,7 +39,7 @@ INSERT INTO customers VALUES
 
 SELECT *,
        UNIX_TIMESTAMP(CAST(committed_at AS STRING)) * 1000 AS committed_unix_ms
-FROM customers$snapshots;
+FROM vroom.customers$snapshots;
 
 SELECT * FROM customers /*+ OPTIONS ('as-of-timestamp' = '1752189366000') */;
 
