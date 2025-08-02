@@ -1,5 +1,7 @@
 USE demo;
 
+CREATE NAMESPACE vroom;
+
 CREATE TABLE vroom.customers (
                            id BIGINT,
                            name STRING,
