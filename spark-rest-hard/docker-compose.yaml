@@ -1,0 +1,111 @@
+services:
+  # ---------- Spark cluster ----------
+  spark:
+    image: docker.io/bitnami/spark:3.5.6
+    container_name: spark
+    environment:
+      - SPARK_MODE=master
+      - SPARK_USER=spark
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    ports:
+      - "8080:8080"   # Spark master UI
+      - "7077:7077"   # Spark master RPC
+    networks: [ mlnet ]
+
+  spark-worker:
+    image: docker.io/bitnami/spark:3.5.6
+    container_name: spark-worker
+    depends_on: [ spark ]
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark:7077
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=2
+      - SPARK_USER=spark
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    ports:
+      - "8081:8081"   # Spark worker UI
+    networks: [ mlnet ]
+
+  # ---------- MinIO (S3) ----------
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-07-23T15-54-02Z
+    container_name: minio
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_ACCESS_KEY}
+      - MINIO_STORAGE_USE_HTTPS=false
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # MinIO console
+    volumes:
+      - minio_data:/data
+    networks: [ mlnet ]
+
+  minio-setup:
+    image: quay.io/minio/mc:RELEASE.2025-07-21T05-28-08Z
+    depends_on: [ minio ]
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_ACCESS_KEY}
+    entrypoint: /bin/sh
+    command: -c "
+      mc alias set local http://minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD &&
+      mc mb -p local/warehouse || true &&
+      mc mb -p local/mlflow || true"
+    networks: [ mlnet ]
+
+  # ---------- Iceberg REST Catalog ----------
+  iceberg-rest:
+    image: tabulario/iceberg-rest:1.6.0
+    container_name: iceberg-rest
+    depends_on: [ minio, minio-setup ]
+    environment:
+      # Use server-side S3 FileIO (AWS SDK v2)
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      # Point at MinIO bucket (must exist)
+      CATALOG_WAREHOUSE: s3://warehouse/
+      AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_ACCESS_KEY}
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE_ACCESS: "true"
+      S3_REGION: us-east-1
+    ports:
+      - "8181:8181"
+    networks: [ mlnet ]
+
+  # ---------- Jupyter Notebook (client) ----------
+  jupyter:
+    build:
+      context: ./jupyter
+      dockerfile: Dockerfile
+    container_name: jupyter
+    depends_on: [ spark, iceberg-rest ]
+    environment:
+      JUPYTER_ENABLE_LAB: "yes"
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_SECRET_ACCESS_KEY}
+      # Convenient vars for the notebook
+      ICEBERG_ENDPOINT: http://iceberg-rest:8181
+      MINIO_ENDPOINT: http://minio:9000
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./notebooks:/home/jovyan/work
+    command: >
+      start-notebook.sh --ServerApp.token='' --ServerApp.password=''
+    networks: [ mlnet ]
+
+volumes:
+  minio_data:
+
+networks:
+  mlnet:
+    driver: bridge
